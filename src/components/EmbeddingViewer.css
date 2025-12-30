@@ -1,37 +1,67 @@
-/* full-screen viewer, night-sky style */
-.embed-viewer-root-fullscreen {
-  position: fixed;
-  inset: 0;              /* top:0; right:0; bottom:0; left:0 */
-  width: 100vw;
-  height: 100vh;
+/* ---------- LAYOUT RESET for full-screen viewer ---------- */
+/* Ensure html/body/root fill the viewport and have no margins */
+html, body, #root {
+  height: 100%;
   margin: 0;
   padding: 0;
-  background: #071030;   /* very dark blue / night */
-  display: flex;
-  align-items: stretch;
-  justify-content: center;
-  overflow: hidden;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  box-sizing: border-box;
 }
 
+/* hide page scrollbars while viewer is active (viewer is full-screen) */
+body {
+  overflow: hidden;
+  background: #071030; /* avoid white flash in top-left */
+}
+
+/* ensure our viewer truly fills the viewport and sits above everything */
+.embed-viewer-root-fullscreen {
+  position: fixed;
+  inset: 0;          /* top:0; right:0; bottom:0; left:0 */
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  box-sizing: border-box;
+  background: #071030;
+}
+
+/* make SVG fill its container without introducing layout gaps */
 .embed-svg-full {
-  display: block;
+  display: block;    /* removes default inline gap */
   width: 100%;
   height: 100%;
-  user-select: none;
-  touch-action: manipulation;
+  overflow: visible;
 }
 
-/* interactive point hover (subtle) */
-.embed-point:hover circle {
-  stroke: #ffffff !important;
-  stroke-width: 1.5;
-  transition: stroke-width 120ms ease, transform 120ms ease;
-  transform-origin: center;
+/* Ensure palette is always visible on top */
+.palette-root {
+  position: fixed !important;
+  right: 18px !important;
+  bottom: 18px !important;
+  display: flex !important;
+  gap: 10px !important;
+  padding: 8px !important;
+  background: rgba(255,255,255,0.02) !important;
+  border-radius: 12px !important;
+  backdrop-filter: blur(6px) !important;
+  box-shadow: 0 6px 20px rgba(2,6,23,0.5) !important;
+  z-index: 2147483647 !important; /* put it above everything */
+  pointer-events: auto !important;
 }
 
-/* reduce default outline, accessible focus can be added later */
-.embed-point:focus {
-  outline: none;
+/* Make sure palette children are visible/clickable */
+.palette-item, .palette-dot, .palette-label {
+  pointer-events: auto !important;
+  user-select: none !important;
 }
+
+/* Ensure palette labels are readable on dark background */
+.palette-label {
+  color: rgba(255,255,255,0.95) !important;
+  font-weight: 600;
+  font-size: 11px;
+}
+
+/* Slight scale on hover so user sees them */
+.palette-item:hover { transform: translateY(-2px); transition: transform 120ms ease; }
+
