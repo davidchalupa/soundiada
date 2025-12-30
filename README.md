@@ -12,6 +12,10 @@ Headphones recommended! :slightly_smiling_face:
 
 Enjoy!
 
+## Known issues
+
+The drag-and-drop functionality of the game currently works only in desktop environments. Mobile devices are unfortunately not supported yet.
+
 ## Attribution
 
 The sounds used in this project are from the ESC-50 dataset:
