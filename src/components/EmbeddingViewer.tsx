@@ -1,8 +1,8 @@
 // src/components/EmbeddingViewer.tsx
 import React, { useRef, useState, useMemo, useEffect } from "react";
 import { esc50Embeddings } from "../resources/embeddings";
-import seedrandom from "seedrandom";
 import "./EmbeddingViewer.css";
+// import seedrandom from "seedrandom";
 
 import IconSiren from "../assets/icons/siren.png";
 import IconBird from "../assets/icons/bird.png";
@@ -10,12 +10,12 @@ import IconBreathing from "../assets/icons/breath.png";
 import IconWashingMachine from "../assets/icons/washing-machine.png";
 import IconCryingBaby from "../assets/icons/crying.png";
 
-type Esc50Embedding = {
-  file: string;
-  category: string;
-  x: number;
-  y: number;
-};
+// type Esc50Embedding = {
+//   file: string;
+//   category: string;
+//   x: number;
+//   y: number;
+// };
 
 // five-category palette (from your sample)
 const PALETTE_CATEGORIES = [
@@ -25,7 +25,7 @@ const PALETTE_CATEGORIES = [
   "washing_machine",
   "crying_baby",
 ] as const;
-type PaletteCat = typeof PALETTE_CATEGORIES[number];
+// type PaletteCat = typeof PALETTE_CATEGORIES[number];
 
 // color map for categories (tweak as you like)
 const CATEGORY_COLOR: Record<string, string> = {
@@ -118,7 +118,7 @@ function getCategoryIcon(cat: string) {
 
   // deterministic tiny jitter (keeps overlap visible)
   const jitter = 1e-3 * Math.max(1.0, (Math.max(...embeddings.map(e => Number(e.x))) - Math.min(...embeddings.map(e => Number(e.x)))));
-  const rng = useMemo(() => seedrandom("42"), []);
+  // const rng = useMemo(() => seedrandom("42"), []);
 
   // Play / Pause toggle
   const onPointClick = (file: string) => {
@@ -213,6 +213,9 @@ function getCategoryIcon(cat: string) {
           const fillColor = guessed ? (CATEGORY_COLOR[guessed] ?? "#e0e0e0") : (isPlaying ? "#0b5c99" : "#ffffff");
           const strokeColor = guessed ? darken(CATEGORY_COLOR[guessed] ?? "#888") : (isPlaying ? "#0e4a7c" : "#6b7280");
           const key = `${e.file}-${idx}`;
+          // compute tooltip text (user-facing)
+          const tooltip = `${e.file} — actual: ${e.category} — guessed: ${guessed ?? "none"}`;
+
           return (
             <g
               key={key}
@@ -223,34 +226,38 @@ function getCategoryIcon(cat: string) {
               onDoubleClick={() => onPointDoubleClick(e.file)}
               onDragOver={onPointDragOver}
               onDrop={(ev) => onPointDrop(ev, e.file)}
-              title={`${e.file} — actual: ${e.category} — guessed: ${guessed ?? "none"}`}
+              role="button"
+              aria-label={tooltip}
             >
-<circle r={16} fill="rgba(255,255,255,0.02)" stroke="none" />
-<circle r={12} fill={fillColor} stroke={strokeColor} strokeWidth={isPlaying ? 2.2 : 1.0} />
+              {/* SVG-native tooltip for browsers (and accessible name for screen readers) */}
+              <title>{tooltip}</title>
 
-{guessed ? (
-  // show the guessed category icon instead of text
-  <image
-    href={getCategoryIcon(guessed)}
-    x={-12}
-    y={-12}
-    width={24}
-    height={24}
-    style={{ pointerEvents: "none" }}
-  />
-) : isPlaying ? (
-  // pause bars when playing
-  <>
-    <rect x={-5} y={-7} width={3} height={14} fill="#fff" rx={0.6} />
-    <rect x={1.5} y={-7} width={3} height={14} fill="#fff" rx={0.6} />
-  </>
-) : (
-  // default play triangle
-  <polygon points="-4,-6 -4,6 6,0" fill="#111" />
-)}
+              <circle r={16} fill="rgba(255,255,255,0.02)" stroke="none" />
+              <circle r={12} fill={fillColor} stroke={strokeColor} strokeWidth={isPlaying ? 2.2 : 1.0} />
 
+              {guessed ? (
+                // show the guessed category icon instead of text
+                <image
+                  href={getCategoryIcon(guessed)}
+                  x={-12}
+                  y={-12}
+                  width={24}
+                  height={24}
+                  style={{ pointerEvents: "none" }}
+                />
+              ) : isPlaying ? (
+                // pause bars when playing
+                <>
+                  <rect x={-5} y={-7} width={3} height={14} fill="#fff" rx={0.6} />
+                  <rect x={1.5} y={-7} width={3} height={14} fill="#fff" rx={0.6} />
+                </>
+              ) : (
+                // default play triangle
+                <polygon points="-4,-6 -4,6 6,0" fill="#111" />
+              )}
             </g>
           );
+
         })}
       </svg>
 
@@ -280,13 +287,14 @@ function getCategoryIcon(cat: string) {
 export default EmbeddingViewer;
 
 /* small helper functions */
-function shortLabel(cat: string) {
-  // returns a short label to render inside the node / palette (2-3 chars)
-  if (!cat) return "";
-  const parts = cat.split(/[_-]/);
-  if (parts.length === 1) return cat.slice(0, 3).toUpperCase();
-  return parts.map(p => p[0].toUpperCase()).join("").slice(0,3);
-}
+// not used for now
+// function shortLabel(cat: string) {
+//   // returns a short label to render inside the node / palette (2-3 chars)
+//   if (!cat) return "";
+//   const parts = cat.split(/[_-]/);
+//   if (parts.length === 1) return cat.slice(0, 3).toUpperCase();
+//   return parts.map(p => p[0].toUpperCase()).join("").slice(0,3);
+// }
 function darken(hex: string, amt = -24) {
   // tiny hex darken helper, amt negative to darken
   try {
