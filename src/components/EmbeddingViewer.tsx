@@ -225,19 +225,30 @@ function getCategoryIcon(cat: string) {
               onDrop={(ev) => onPointDrop(ev, e.file)}
               title={`${e.file} — actual: ${e.category} — guessed: ${guessed ?? "none"}`}
             >
-              <circle r={16} fill="rgba(255,255,255,0.02)" stroke="none" />
-              <circle r={12} fill={fillColor} stroke={strokeColor} strokeWidth={isPlaying ? 2.2 : 1.0} />
-              {guessed ? (
-                // small marker showing guessed category initial
-                <text x={-3} y={4} fontSize={7} fill="#fff" style={{ pointerEvents: "none" }}>{shortLabel(guessed)}</text>
-              ) : isPlaying ? (
-                <>
-                  <rect x={-5} y={-7} width={3} height={14} fill="#fff" rx={0.6} />
-                  <rect x={1.5} y={-7} width={3} height={14} fill="#fff" rx={0.6} />
-                </>
-              ) : (
-                <polygon points="-4,-6 -4,6 6,0" fill="#111" />
-              )}
+<circle r={16} fill="rgba(255,255,255,0.02)" stroke="none" />
+<circle r={12} fill={fillColor} stroke={strokeColor} strokeWidth={isPlaying ? 2.2 : 1.0} />
+
+{guessed ? (
+  // show the guessed category icon instead of text
+  <image
+    href={getCategoryIcon(guessed)}
+    x={-12}
+    y={-12}
+    width={24}
+    height={24}
+    style={{ pointerEvents: "none" }}
+  />
+) : isPlaying ? (
+  // pause bars when playing
+  <>
+    <rect x={-5} y={-7} width={3} height={14} fill="#fff" rx={0.6} />
+    <rect x={1.5} y={-7} width={3} height={14} fill="#fff" rx={0.6} />
+  </>
+) : (
+  // default play triangle
+  <polygon points="-4,-6 -4,6 6,0" fill="#111" />
+)}
+
             </g>
           );
         })}
