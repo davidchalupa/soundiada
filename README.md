@@ -4,7 +4,7 @@ A simple game inspired by 2D embeddings of audio recordings.
 
 You can play here:
 
-https://davidchalupa.github.io/soundiada/
+https://davidchalupa.github.io/soundiada-intro/
 
 Just click on each point on the screen to play the sound and drag-and-drop the correct label.
 
