@@ -221,6 +221,30 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
   // render
   return (
     <div ref={containerRef} className="embed-viewer-root-fullscreen">
+      {/* Minimal instructions (top-left) */}
+      <div
+        style={{
+          position: "absolute",
+          top: 12,
+          left: 12,
+          zIndex: 1500,
+          background: "rgba(255,255,255,0.04)",
+          color: "#fff",
+          padding: "8px 12px",
+          borderRadius: 8,
+          fontSize: 13,
+          lineHeight: 1.2,
+          boxShadow: "0 6px 18px rgba(0,0,0,0.45)",
+          pointerEvents: "none", // do not block pointer events to the canvas
+          userSelect: "none",
+        }}
+        aria-hidden
+      >
+        <strong style={{ display: "block", marginBottom: 4 }}>How to play</strong>
+        <div>Click a circle to play the sound.</div>
+        <div>Drag an icon from the palette (bottom-right) onto a circle to label it.</div>
+        <div><strong>Note: </strong>Headphones recommended.</div>
+      </div>
       <svg width={containerSize.w} height={containerSize.h} className="embed-svg-full">
         <rect x="0" y="0" width={containerSize.w} height={containerSize.h} fill="#071030" />
         {embeddings.map((e, idx) => {
