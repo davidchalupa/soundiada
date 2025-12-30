@@ -4,6 +4,12 @@ import { esc50Embeddings } from "../resources/embeddings";
 import seedrandom from "seedrandom";
 import "./EmbeddingViewer.css";
 
+import IconSiren from "../assets/icons/siren.png";
+import IconBird from "../assets/icons/bird.png";
+import IconBreathing from "../assets/icons/breath.png";
+import IconWashingMachine from "../assets/icons/washing-machine.png";
+import IconCryingBaby from "../assets/icons/crying.png";
+
 type Esc50Embedding = {
   file: string;
   category: string;
@@ -80,6 +86,18 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
     return { px, py };
   };
 
+function getCategoryIcon(cat: string) {
+  switch(cat) {
+    case "siren": return IconSiren;
+    case "chirping_birds": return IconBird;
+    case "breathing": return IconBreathing;
+    case "washing_machine": return IconWashingMachine;
+    case "crying_baby": return IconCryingBaby;
+    default: return IconSiren;
+  }
+}
+
+
   // responsive size
   // responsive size (stable: use window resize instead of ResizeObserver to avoid layout loops)
   useEffect(() => {
@@ -97,7 +115,6 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
       window.removeEventListener("resize", update);
     };
   }, []);
-
 
   // deterministic tiny jitter (keeps overlap visible)
   const jitter = 1e-3 * Math.max(1.0, (Math.max(...embeddings.map(e => Number(e.x))) - Math.min(...embeddings.map(e => Number(e.x)))));
@@ -181,6 +198,7 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
     });
   };
 
+
   // render
   return (
     <div ref={containerRef} className="embed-viewer-root-fullscreen">
@@ -225,7 +243,7 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
         })}
       </svg>
 
-      {/* palette: draggable category icons (lower-right) */}
+      {/* palette: draggable category icons */}
       <div className="palette-root" aria-hidden>
         {PALETTE_CATEGORIES.map((cat) => (
           <div
@@ -233,10 +251,12 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
             className="palette-item"
             draggable
             onDragStart={(ev) => onPaletteDragStart(ev, cat)}
-            title={`Drag to assign category: ${cat}`}
+            title={cat.replace(/_/g, " ")}
           >
-            <div className="palette-dot" style={{ background: CATEGORY_COLOR[cat] }} />
-            <div className="palette-label">{shortLabel(cat)}</div>
+            {/* Icon for category */}
+            <div className="palette-icon">
+              <img src={getCategoryIcon(cat)} alt={cat} width={32} height={32} />
+            </div>
           </div>
         ))}
       </div>
