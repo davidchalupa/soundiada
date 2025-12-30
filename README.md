@@ -1,8 +1,24 @@
 # Soundiada
 
-Coming soon...
+A simple game inspired by 2D embeddings of audio recordings.
+
+You can play here:
+
+https://davidchalupa.github.io/soundiada/
+
+Just click on each point on the screen to play the sound and drag-and-drop the correct label.
+
+Headphones recommended! :slightly_smiling_face:
+
+Enjoy!
 
 ## Attribution
+
+The sounds used in this project are from the ESC-50 dataset:
+
+https://github.com/karolpiczak/ESC-50
+
+K. J. Piczak. ESC: Dataset for Environmental Sound Classification. _Proceedings of the 23rd Annual ACM Conference on Multimedia_, Brisbane, Australia, 2015.
 
 This project uses Flaticon icons that are free for personal and commercial purpose with attribution.
 
