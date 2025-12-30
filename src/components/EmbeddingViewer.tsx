@@ -10,13 +10,6 @@ import IconBreathing from "../assets/icons/breath.png";
 import IconWashingMachine from "../assets/icons/washing-machine.png";
 import IconCryingBaby from "../assets/icons/crying.png";
 
-// type Esc50Embedding = {
-//   file: string;
-//   category: string;
-//   x: number;
-//   y: number;
-// };
-
 // five-category palette (from your sample)
 const PALETTE_CATEGORIES = [
   "siren",
@@ -25,7 +18,6 @@ const PALETTE_CATEGORIES = [
   "washing_machine",
   "crying_baby",
 ] as const;
-// type PaletteCat = typeof PALETTE_CATEGORIES[number];
 
 // color map for categories (tweak as you like)
 const CATEGORY_COLOR: Record<string, string> = {
@@ -53,8 +45,38 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
   // guesses: mapping file -> guessed category
   const [guesses, setGuesses] = useState<Record<string, string>>({});
 
+  // ---- NEW: modal + counters state ----
+  const [showModal, setShowModal] = useState(false);
+
   // frozen copy of embeddings
   const embeddings = useMemo(() => esc50Embeddings.slice(), []);
+
+  // number of flagged samples
+  const totalFlagged = useMemo(() => Object.keys(guesses).length, [guesses]);
+
+  // number of correct guesses (compare guessed category vs true category)
+  const correctCount = useMemo(() => {
+    return embeddings.reduce((acc, e) => (guesses[e.file] === e.category ? acc + 1 : acc), 0);
+  }, [guesses, embeddings]);
+
+  // when all samples are flagged, show the modal; hide otherwise
+  useEffect(() => {
+    if (embeddings.length > 0 && totalFlagged === embeddings.length) {
+      setShowModal(true);
+      // pause any playing audio for clarity
+      audioRef.current?.pause();
+    } else {
+      setShowModal(false);
+    }
+  }, [totalFlagged, embeddings.length]);
+
+  // modal controls
+  const onCloseModal = () => setShowModal(false);
+  const onResetGuesses = () => {
+    setGuesses({});
+    setShowModal(false);
+  };
+  // ---- END NEW ----
 
   // compute bounds
   const bounds = useMemo(() => {
@@ -86,19 +108,17 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
     return { px, py };
   };
 
-function getCategoryIcon(cat: string) {
-  switch(cat) {
-    case "siren": return IconSiren;
-    case "chirping_birds": return IconBird;
-    case "breathing": return IconBreathing;
-    case "washing_machine": return IconWashingMachine;
-    case "crying_baby": return IconCryingBaby;
-    default: return IconSiren;
+  function getCategoryIcon(cat: string) {
+    switch(cat) {
+      case "siren": return IconSiren;
+      case "chirping_birds": return IconBird;
+      case "breathing": return IconBreathing;
+      case "washing_machine": return IconWashingMachine;
+      case "crying_baby": return IconCryingBaby;
+      default: return IconSiren;
+    }
   }
-}
 
-
-  // responsive size
   // responsive size (stable: use window resize instead of ResizeObserver to avoid layout loops)
   useEffect(() => {
     const update = () => {
@@ -198,7 +218,6 @@ function getCategoryIcon(cat: string) {
     });
   };
 
-
   // render
   return (
     <div ref={containerRef} className="embed-viewer-root-fullscreen">
@@ -278,6 +297,72 @@ function getCategoryIcon(cat: string) {
           </div>
         ))}
       </div>
+
+      {/* ----- RESULTS MODAL (shows when all samples are guessed) ----- */}
+      {showModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(0,0,0,0.55)",
+            zIndex: 2000,
+          }}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            style={{
+              background: "#071030",
+              color: "#fff",
+              padding: 24,
+              borderRadius: 10,
+              minWidth: 320,
+              maxWidth: "90%",
+              textAlign: "center",
+              boxShadow: "0 10px 40px rgba(0,0,0,0.6)",
+            }}
+          >
+            <h2 style={{ margin: 0, marginBottom: 12 }}>Congratulations!</h2>
+            <p style={{ margin: 0, marginBottom: 18, fontSize: 16 }}>
+              Your final score:{" "}
+              <strong style={{ fontSize: 18 }}>
+                {correctCount} / {embeddings.length}
+              </strong>
+            </p>
+            <div style={{ display: "flex", gap: 12, justifyContent: "center", marginTop: 8 }}>
+              <button
+                onClick={onCloseModal}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 6,
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  background: "transparent",
+                  color: "#fff",
+                  cursor: "pointer",
+                }}
+              >
+                Close
+              </button>
+              <button
+                onClick={onResetGuesses}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 6,
+                  border: "none",
+                  background: "#ff6b6b",
+                  color: "#fff",
+                  cursor: "pointer",
+                }}
+              >
+                Reset guesses
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <audio ref={audioRef} style={{ display: "none" }} preload="none" />
     </div>
