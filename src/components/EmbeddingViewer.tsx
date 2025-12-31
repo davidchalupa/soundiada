@@ -273,7 +273,8 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
               aria-label={tooltip}
             >
               {/* SVG-native tooltip for browsers (and accessible name for screen readers) */}
-              <title>{tooltip}</title>
+              {/* show browser tooltip only when final modal is visible (avoid revealing labels during play) */}
+              {showModal ? <title>{tooltip}</title> : null}
 
               <circle r={16} fill="rgba(255,255,255,0.02)" stroke="none" />
               <circle r={12} fill={fillColor} stroke={strokeColor} strokeWidth={isPlaying ? 2.2 : 1.0} />
