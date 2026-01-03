@@ -121,10 +121,14 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
       const docEl: any = document.documentElement;
       if (docEl.requestFullscreen) await docEl.requestFullscreen();
       // @ts-ignore
-      if (screen.orientation && screen.orientation.lock) {
-        try { await screen.orientation.lock("landscape-primary"); }
-        catch (e1) {
-          try { await screen.orientation.lock("landscape"); } catch {}
+      const orientation = screen.orientation as any;
+      if (orientation && typeof orientation.lock === "function") {
+        try {
+          await orientation.lock("landscape-primary");
+        } catch {
+          try {
+            await orientation.lock("landscape");
+          } catch {}
         }
       }
     } catch {
