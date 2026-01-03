@@ -37,13 +37,34 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playingFile, setPlayingFile] = useState<string | null>(null);
   const [viewport, setViewport] = useState({ w: window.innerWidth, h: window.innerHeight });
+
+  // canonical initial viewport (captured on first mount)
+  const canonicalRef = useRef<{ w: number; h: number; portrait: boolean } | null>(null);
+
   const [guesses, setGuesses] = useState<Record<string, string>>({});
   const [showModal, setShowModal] = useState(false);
 
-  // portrait detection
-  const [isPortrait, setIsPortrait] = useState(() => {
-    return !!(window.matchMedia && window.matchMedia("(orientation: portrait)").matches);
-  });
+  // set canonical viewport on first mount
+  useEffect(() => {
+    if (!canonicalRef.current) {
+      const w0 = Math.max(200, window.innerWidth);
+      const h0 = Math.max(160, window.innerHeight);
+      const portrait0 = !!(window.matchMedia && window.matchMedia("(orientation: portrait)").matches);
+      canonicalRef.current = { w: w0, h: h0, portrait: portrait0 };
+    }
+  }, []);
+
+  // update viewport on resize/orientation changes
+  useEffect(() => {
+    const update = () => setViewport({ w: Math.max(200, window.innerWidth), h: Math.max(160, window.innerHeight) });
+    update();
+    window.addEventListener("resize", update, { passive: true });
+    window.addEventListener("orientationchange", update, { passive: true });
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("orientationchange", update);
+    };
+  }, []);
 
   const embeddings = useMemo(() => esc50Embeddings.slice(), []);
 
@@ -53,7 +74,6 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
     [guesses, embeddings]
   );
 
-  // show modal when all labeled
   useEffect(() => {
     if (embeddings.length > 0 && totalFlagged === embeddings.length) {
       setShowModal(true);
@@ -63,40 +83,36 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
     }
   }, [totalFlagged, embeddings.length]);
 
-  // update viewport and orientation on resize / orientation change
-  useEffect(() => {
-    const update = () => setViewport({ w: Math.max(200, window.innerWidth), h: Math.max(160, window.innerHeight) });
-    update();
-    const onResize = () => {
-      update();
-      setIsPortrait(!!(window.matchMedia && window.matchMedia("(orientation: portrait)").matches));
-    };
-    window.addEventListener("resize", onResize, { passive: true });
-    // also handle orientationchange just in case
-    window.addEventListener("orientationchange", onResize, { passive: true });
-    return () => {
-      window.removeEventListener("resize", onResize);
-      window.removeEventListener("orientationchange", onResize);
-    };
-  }, []);
+  // logical canonical canvas (use initial orientation dims as-is)
+  const canonical = canonicalRef.current ?? { w: viewport.w, h: viewport.h, portrait: viewport.h > viewport.w };
+  const cw0 = canonical.w;
+  const ch0 = canonical.h;
+  const initialPortrait = canonical.portrait;
 
-  // compute logical landscape canvas size (cw x ch)
-  // cw: the longer side, ch: the shorter side -> this defines the "landscape" coordinate system
-  const cw = Math.max(viewport.w, viewport.h);
-  const ch = Math.min(viewport.w, viewport.h);
+  // detect whether current orientation differs from canonical
+  const currentPortrait = viewport.h > viewport.w;
+  const rotated = initialPortrait !== currentPortrait;
 
-  // compute scale to fit the logical canvas into the actual viewport (after rotation if portrait)
-  // If portrait, the logical canvas will be rotated to fit viewport, so we compare viewport.w to ch and viewport.h to cw
-  const scale = useMemo(() => {
-    if (isPortrait) {
-      // rotated mapping: logical (cw x ch) -> rotated bounding (ch x cw)
-      return Math.min(viewport.w / ch, viewport.h / cw);
+  // compute scale to fit canonical canvas into current viewport
+  // if rotated, the canonical canvas is rotated 90deg when mapping to viewport, so swap dims
+  const scale = (() => {
+    if (rotated) {
+      // canonical (cw0 x ch0) will be mapped rotated -> compare viewport.w to ch0 and viewport.h to cw0
+      return Math.min(viewport.w / ch0, viewport.h / cw0);
     } else {
-      return Math.min(viewport.w / cw, viewport.h / ch);
+      return Math.min(viewport.w / cw0, viewport.h / ch0);
     }
-  }, [viewport.w, viewport.h, cw, ch, isPortrait]);
+  })();
 
-  // bounds for projection (based on numeric embedding coords)
+  // compute the transform for the canonical content container:
+  // center container at viewport center and then rotate + scale as needed.
+  // Using translate(-50%,-50%) centers the element (which has width cw0 and height ch0),
+  // then rotate(90deg) (if needed) then scale(scale).
+  const transform = rotated
+    ? `translate(-50%,-50%) rotate(90deg) scale(${scale})`
+    : `translate(-50%,-50%) scale(${scale})`;
+
+  // projection bounds based on canonical logical coords (cw0 x ch0)
   const bounds = useMemo(() => {
     if (!embeddings || embeddings.length === 0) return { minX: 0, maxX: 1, minY: 0, maxY: 1 };
     let minX = Infinity,
@@ -124,11 +140,11 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
     return { minX, maxX, minY, maxY };
   }, [embeddings]);
 
-  // project coordinates to pixels inside logical canvas (cw x ch)
+  // project using canonical dims (cw0 x ch0)
   const project = (x: number, y: number) => {
     const { minX, maxX, minY, maxY } = bounds;
-    const w = cw - 2 * padding;
-    const h = ch - 2 * padding;
+    const w = cw0 - 2 * padding;
+    const h = ch0 - 2 * padding;
     const px = padding + ((x - minX) / (maxX - minX)) * w;
     const py = padding + (1 - (y - minY) / (maxY - minY)) * h;
     return { px, py };
@@ -158,7 +174,7 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
     return 1e-3 * Math.max(1.0, Math.max(...xs) - Math.min(...xs));
   }, [embeddings]);
 
-  // audio play/pause
+  // audio behavior
   const onPointClick = (file: string) => {
     const url = buildAudioUrl(file);
     const audio = audioRef.current;
@@ -199,7 +215,7 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
     };
   }, []);
 
-  // pointer drag fallback
+  // pointer drag fallback + ghost
   const draggingCatRef = useRef<string | null>(null);
   const pointerIdRef = useRef<number | null>(null);
   const ghostRef = useRef<HTMLElement | null>(null);
@@ -279,7 +295,7 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
     };
   }, []);
 
-  // desktop drag handlers
+  // desktop drag
   const onPaletteDragStart = (ev: React.DragEvent, category: string) => {
     try {
       ev.dataTransfer.setData("text/plain", category);
@@ -307,23 +323,8 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
     setShowModal(false);
   };
 
-  // content container style: logical canvas cw x ch, centered, rotated when portrait, scaled by `scale`
-  const contentStyle: React.CSSProperties = {
-    position: "absolute",
-    left: "50%",
-    top: "50%",
-    width: `${cw}px`,
-    height: `${ch}px`,
-    transformOrigin: "center center",
-    // order: translate to center, then (if portrait) rotate 90deg, then scale to fit viewport
-    transform: `${isPortrait ? "translate(-50%,-50%) rotate(90deg) " : "translate(-50%,-50%) "} scale(${scale})`,
-    willChange: "transform",
-    pointerEvents: "auto",
-    touchAction: "none",
-    zIndex: 1,
-  };
-
-  // The outer wrapper spans whole viewport; contentStyle centers and rotates/scales the logical canvas inside it
+  // container & content styles:
+  // wrapper fills viewport; content (canonical canvas) is centered and transformed
   const wrapperStyle: React.CSSProperties = {
     position: "fixed",
     left: 0,
@@ -334,15 +335,29 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
     zIndex: 1,
   };
 
+  const contentStyle: React.CSSProperties = {
+    position: "absolute",
+    left: "50%",
+    top: "50%",
+    width: `${cw0}px`,
+    height: `${ch0}px`,
+    transformOrigin: "center center",
+    transform,
+    pointerEvents: "auto",
+    touchAction: "none",
+    // ensure content sits below palette/instruction
+    zIndex: 1,
+  };
+
   return (
     <div style={{ position: "relative", width: "100vw", height: "100vh", overflow: "hidden" }}>
-      {/* fixed top-left instructions */}
+      {/* instructions: fixed top-left */}
       <div
         style={{
           position: "fixed",
           top: 12,
           left: 12,
-          zIndex: 1500,
+          zIndex: 1600,
           background: "rgba(255,255,255,0.04)",
           color: "#fff",
           padding: "8px 12px",
@@ -360,12 +375,11 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
         <div>Drag an icon from the palette (bottom-right) onto a circle to label it.</div>
       </div>
 
-      {/* wrapper fills viewport */}
+      {/* main wrapper */}
       <div style={wrapperStyle}>
-        {/* content is logical canvas (cw x ch) centered, rotated & scaled to fit */}
         <div style={contentStyle}>
-          <svg width={cw} height={ch} viewBox={`0 0 ${cw} ${ch}`} preserveAspectRatio="none">
-            <rect x={0} y={0} width={cw} height={ch} fill="#071030" />
+          <svg width={cw0} height={ch0} viewBox={`0 0 ${cw0} ${ch0}`} preserveAspectRatio="none">
+            <rect x={0} y={0} width={cw0} height={ch0} fill="#071030" />
             {embeddings.map((e, idx) => {
               const x = Number(e.x) + ((idx % 2 === 0 ? 1 : -1) * jitter * 0.5);
               const y = Number(e.y) + ((idx % 3 === 0 ? 1 : -1) * jitter * 0.5);
@@ -391,7 +405,6 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
                   role="button"
                   aria-label={tooltip}
                 >
-                  {/* tooltip only when finished */}
                   {showModal ? <title>{tooltip}</title> : null}
 
                   <circle r={16} fill="rgba(255,255,255,0.02)" stroke="none" />
@@ -424,7 +437,7 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
           bottom: 18,
           display: "flex",
           gap: 10,
-          zIndex: 1600,
+          zIndex: 1700,
           touchAction: "none",
         }}
       >
