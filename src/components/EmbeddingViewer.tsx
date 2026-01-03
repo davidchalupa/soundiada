@@ -185,7 +185,102 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
     };
   }, []);
 
-  // Drag handlers for palette
+  // ---- POINTER-BASED DRAG (mobile + pointer fallback) ----
+  // mutable refs to avoid re-renders
+  const draggingCatRef = useRef<string | null>(null);
+  const pointerIdRef = useRef<number | null>(null);
+  const ghostRef = useRef<HTMLElement | null>(null);
+
+  // call to perform drop action programmatically (from pointer-based flow)
+  const onPointDropSynthetic = (category: string, file: string) => {
+    setGuesses(prev => ({ ...prev, [file]: category }));
+  };
+
+  // create a ghost element (simple) and attach to body
+  const makeGhost = (cat: string, x: number, y: number) => {
+    cleanupGhost();
+    const g = document.createElement("div");
+    g.style.position = "fixed";
+    g.style.left = `${x - 20}px`;
+    g.style.top = `${y - 20}px`;
+    g.style.width = `40px`;
+    g.style.height = `40px`;
+    g.style.zIndex = "9999";
+    g.style.pointerEvents = "none";
+    g.style.borderRadius = "6px";
+    g.style.backgroundImage = `url(${getCategoryIcon(cat)})`;
+    g.style.backgroundSize = "cover";
+    g.style.boxShadow = "0 6px 18px rgba(0,0,0,0.35)";
+    document.body.appendChild(g);
+    ghostRef.current = g;
+  };
+
+  const cleanupGhost = () => {
+    if (ghostRef.current && ghostRef.current.parentNode) {
+      ghostRef.current.parentNode.removeChild(ghostRef.current);
+      ghostRef.current = null;
+    }
+  };
+
+  const onPointerMoveWindow = (ev: PointerEvent) => {
+    if (!ghostRef.current) return;
+    ghostRef.current.style.left = `${ev.clientX - 20}px`;
+    ghostRef.current.style.top = `${ev.clientY - 20}px`;
+  };
+
+  const onPointerUpWindow = (ev: PointerEvent) => {
+    try {
+      // find element under finger
+      const el = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
+      if (el) {
+        const pt = el.closest(".embed-point") as HTMLElement | null;
+        if (pt) {
+          const file = pt.getAttribute("data-file");
+          if (file && draggingCatRef.current) {
+            onPointDropSynthetic(draggingCatRef.current, file);
+          }
+        }
+      }
+    } finally {
+      // cleanup
+      cleanupGhost();
+      draggingCatRef.current = null;
+      pointerIdRef.current = null;
+      window.removeEventListener("pointermove", onPointerMoveWindow);
+      window.removeEventListener("pointerup", onPointerUpWindow);
+    }
+  };
+
+  // start dragging via pointer (bound to palette icons)
+  const startPointerDrag = (ev: React.PointerEvent, category: string) => {
+    try {
+      ev.preventDefault();
+      ev.stopPropagation();
+    } catch {}
+    // ensure we capture the pointer on the target if available
+    try {
+      (ev.currentTarget as Element).setPointerCapture?.(ev.pointerId);
+    } catch {}
+    draggingCatRef.current = category;
+    pointerIdRef.current = ev.pointerId;
+    makeGhost(category, ev.clientX, ev.clientY);
+    window.addEventListener("pointermove", onPointerMoveWindow, { passive: true } as any);
+    window.addEventListener("pointerup", onPointerUpWindow);
+  };
+
+  // cleanup on unmount
+  useEffect(() => {
+    return () => {
+      cleanupGhost();
+      window.removeEventListener("pointermove", onPointerMoveWindow);
+      window.removeEventListener("pointerup", onPointerUpWindow);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ---- END POINTER-BASED DRAG ----
+
+  // Drag handlers for palette (desktop dragstart kept)
   const onPaletteDragStart = (ev: React.DragEvent, category: string) => {
     try {
       ev.dataTransfer.setData("text/plain", category);
@@ -195,7 +290,7 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
     }
   };
 
-  // Drop handlers for points
+  // Drop handlers for points (desktop)
   const onPointDragOver = (ev: React.DragEvent) => {
     ev.preventDefault(); // allow drop
   };
@@ -264,6 +359,7 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
               key={key}
               transform={`translate(${px}, ${py})`}
               className="embed-point"
+              data-file={e.file}
               style={{ cursor: "pointer" }}
               onClick={() => onPointClick(e.file)}
               onDoubleClick={() => onPointDoubleClick(e.file)}
@@ -306,13 +402,19 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
       </svg>
 
       {/* palette: draggable category icons */}
-      <div className="palette-root" aria-hidden>
+      <div
+        className="palette-root"
+        aria-hidden
+        // important: prevent touch scrolling while pointer-dragging
+        style={{ touchAction: "none" }}
+      >
         {PALETTE_CATEGORIES.map((cat) => (
           <div
             key={cat}
             className="palette-item"
             draggable
             onDragStart={(ev) => onPaletteDragStart(ev, cat)}
+            onPointerDown={(ev) => startPointerDrag(ev, cat)}
             title={cat.replace(/_/g, " ")}
           >
             {/* Icon for category */}
