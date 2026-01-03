@@ -1,4 +1,3 @@
-// src/components/EmbeddingViewer.tsx
 import React, { useRef, useState, useMemo, useEffect } from "react";
 import { esc50Embeddings } from "../resources/embeddings";
 import "./EmbeddingViewer.css";
@@ -8,15 +7,6 @@ import IconBird from "../assets/icons/bird.png";
 import IconBreathing from "../assets/icons/breath.png";
 import IconWashingMachine from "../assets/icons/washing-machine.png";
 import IconCryingBaby from "../assets/icons/crying.png";
-
-/*
-  Drop-in replacement: landscape-first viewer with desktop-position fix.
-
-  Fixes:
-  - Ensures the root/container/SVG are fixed to viewport (position: fixed; left:0; top:0)
-    and SVG is display:block so there are no subtle offsets (white margins / scrollbars).
-  - Keeps the rest of behavior unchanged (play/pause, drag/drop, palette, modal).
-*/
 
 const PALETTE_CATEGORIES = [
   "siren",
@@ -40,9 +30,11 @@ function buildAudioUrl(filename: string) {
 
 type Props = {
   padding?: number;
+  // optional aspect ratio (height/width), default = 9/16 (landscape)
+  aspectRatio?: number;
 };
 
-const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
+const EmbeddingViewer: React.FC<Props> = ({ padding = 40, aspectRatio = 9 / 16 }) => {
   // refs & state
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playingFile, setPlayingFile] = useState<string | null>(null);
@@ -52,7 +44,11 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
 
   // update viewport on resize/orientation change
   useEffect(() => {
-    const update = () => setViewport({ w: Math.max(200, window.innerWidth), h: Math.max(160, window.innerHeight) });
+    const update = () =>
+      setViewport({
+        w: Math.max(200, window.innerWidth),
+        h: Math.max(160, window.innerHeight),
+      });
     update();
     window.addEventListener("resize", update, { passive: true });
     window.addEventListener("orientationchange", update, { passive: true });
@@ -80,6 +76,15 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
       setShowModal(false);
     }
   }, [totalFlagged, embeddings.length]);
+
+  // compute canvas size:
+  // - width = viewport.w
+  // - height = min(viewport.h, viewport.w * aspectRatio)
+  const canvasW = viewport.w;
+  const canvasH = Math.min(viewport.h, Math.round(viewport.w * aspectRatio));
+
+  // compute top offset to center canvas vertically if canvasH < viewport.h
+  const canvasTop = Math.round((viewport.h - canvasH) / 2);
 
   // compute bounds for projection (based on numeric coords)
   const bounds = useMemo(() => {
@@ -109,11 +114,11 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
     return { minX, maxX, minY, maxY };
   }, [embeddings]);
 
-  // project into viewport pixel space (width = viewport.w, height = viewport.h)
+  // project into canvas pixel space (width = canvasW, height = canvasH)
   const project = (x: number, y: number) => {
     const { minX, maxX, minY, maxY } = bounds;
-    const w = viewport.w - 2 * padding;
-    const h = viewport.h - 2 * padding;
+    const w = canvasW - 2 * padding;
+    const h = canvasH - 2 * padding;
     const px = padding + ((x - minX) / (maxX - minX)) * w;
     const py = padding + (1 - (y - minY) / (maxY - minY)) * h;
     return { px, py };
@@ -288,7 +293,6 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
 
   // Render
   return (
-    // ROOT is fixed to viewport to avoid any page margins/offsets that caused shifted points.
     <div
       style={{
         position: "fixed",
@@ -352,26 +356,26 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
         <div>Drag an icon from the palette (bottom-right) onto a circle to label it.</div>
       </div>
 
-      {/* SVG canvas: exact viewport size, positioned fixed to avoid parent offsets */}
+      {/* SVG canvas: width fills viewport, height capped to aspect ratio; canvas is centered vertically */}
       <svg
-        width={viewport.w}
-        height={viewport.h}
-        viewBox={`0 0 ${viewport.w} ${viewport.h}`}
+        width={canvasW}
+        height={canvasH}
+        viewBox={`0 0 ${canvasW} ${canvasH}`}
         preserveAspectRatio="none"
         style={{
           display: isLandscape ? "block" : "none",
           width: "100vw",
-          height: "100vh",
+          height: `${canvasH}px`,
           position: "fixed",
           left: 0,
-          top: 0,
+          top: `${canvasTop}px`,
           zIndex: 1,
           boxSizing: "border-box",
           margin: 0,
           padding: 0,
         }}
       >
-        <rect x={0} y={0} width={viewport.w} height={viewport.h} fill="#071030" />
+        <rect x={0} y={0} width={canvasW} height={canvasH} fill="#071030" />
         {embeddings.map((e, idx) => {
           const x = Number(e.x) + ((idx % 2 === 0 ? 1 : -1) * jitter * 0.5);
           const y = Number(e.y) + ((idx % 3 === 0 ? 1 : -1) * jitter * 0.5);
