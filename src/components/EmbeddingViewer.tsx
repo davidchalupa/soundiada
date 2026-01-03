@@ -1,4 +1,3 @@
-// src/components/EmbeddingViewer.tsx
 import React, { useRef, useState, useMemo, useEffect } from "react";
 import { esc50Embeddings } from "../resources/embeddings";
 import "./EmbeddingViewer.css";
@@ -9,15 +8,6 @@ import IconBreathing from "../assets/icons/breath.png";
 import IconWashingMachine from "../assets/icons/washing-machine.png";
 import IconCryingBaby from "../assets/icons/crying.png";
 
-/**
- * - responsive fullscreen canvas
- * - click to play / pause audio
- * - drag & drop labels from palette (desktop HTML5 drag + pointer / touch fallback)
- * - keeps guesses state, shows modal when all items are labeled
- * - portrait-orientation overlay that recommends landscape and tries to lock orientation
- */
-
-/* palette categories (sample) */
 const PALETTE_CATEGORIES = [
   "siren",
   "chirping_birds",
@@ -43,33 +33,27 @@ type Props = {
 };
 
 const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
-  // refs
+  // refs & state
   const audioRef = useRef<HTMLAudioElement | null>(null);
-
-  // UI state
   const [playingFile, setPlayingFile] = useState<string | null>(null);
   const [containerSize, setContainerSize] = useState({ w: window.innerWidth, h: window.innerHeight });
-
-  // guesses: mapping file -> guessed category
   const [guesses, setGuesses] = useState<Record<string, string>>({});
-
-  // modal shown when all samples guessed
   const [showModal, setShowModal] = useState(false);
 
-  // orientation overlay state
+  // portrait detection
   const [isPortrait, setIsPortrait] = useState(() => {
     if (typeof window === "undefined") return false;
     return !!(window.matchMedia && window.matchMedia("(orientation: portrait)").matches);
   });
 
-  // embeddings (frozen copy)
   const embeddings = useMemo(() => esc50Embeddings.slice(), []);
 
-  // counts derived
   const totalFlagged = useMemo(() => Object.keys(guesses).length, [guesses]);
-  const correctCount = useMemo(() => embeddings.reduce((acc, e) => (guesses[e.file] === e.category ? acc + 1 : acc), 0), [guesses, embeddings]);
+  const correctCount = useMemo(
+    () => embeddings.reduce((acc, e) => (guesses[e.file] === e.category ? acc + 1 : acc), 0),
+    [guesses, embeddings]
+  );
 
-  // show modal when all flagged
   useEffect(() => {
     if (embeddings.length > 0 && totalFlagged === embeddings.length) {
       setShowModal(true);
@@ -79,17 +63,15 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
     }
   }, [totalFlagged, embeddings.length]);
 
-  // responsive size
+  // responsive container sizing: track viewport
   useEffect(() => {
-    const update = () => {
-      setContainerSize({ w: Math.max(200, window.innerWidth), h: Math.max(160, window.innerHeight) });
-    };
+    const update = () => setContainerSize({ w: Math.max(200, window.innerWidth), h: Math.max(160, window.innerHeight) });
     update();
     window.addEventListener("resize", update, { passive: true });
     return () => window.removeEventListener("resize", update);
   }, []);
 
-  // orientation: keep media query + resize sync
+  // keep portrait flag updated
   useEffect(() => {
     if (typeof window === "undefined") return;
     const mq = window.matchMedia("(orientation: portrait)");
@@ -115,33 +97,16 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
     };
   }, []);
 
-  // try to request fullscreen + lock orientation (best-effort)
-  const tryLockLandscape = async () => {
-    try {
-      const docEl: any = document.documentElement;
-      if (docEl.requestFullscreen) await docEl.requestFullscreen();
-      // @ts-ignore
-      const orientation = screen.orientation as any;
-      if (orientation && typeof orientation.lock === "function") {
-        try {
-          await orientation.lock("landscape-primary");
-        } catch {
-          try {
-            await orientation.lock("landscape");
-          } catch {}
-        }
-      }
-    } catch {
-      // ignore failures
-    }
-  };
-
-  // compute bounds for projection (from embedding coords)
+  // compute projection bounds (based on the numeric embedding coordinates)
   const bounds = useMemo(() => {
     if (!embeddings || embeddings.length === 0) return { minX: 0, maxX: 1, minY: 0, maxY: 1 };
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    let minX = Infinity,
+      maxX = -Infinity,
+      minY = Infinity,
+      maxY = -Infinity;
     for (const e of embeddings) {
-      const x = Number(e.x), y = Number(e.y);
+      const x = Number(e.x),
+        y = Number(e.y);
       if (Number.isFinite(x) && Number.isFinite(y)) {
         minX = Math.min(minX, x);
         maxX = Math.max(maxX, x);
@@ -149,15 +114,22 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
         maxY = Math.max(maxY, y);
       }
     }
-    if (minX === maxX) { minX -= 1; maxX += 1; }
-    if (minY === maxY) { minY -= 1; maxY += 1; }
+    if (minX === maxX) {
+      minX -= 1;
+      maxX += 1;
+    }
+    if (minY === maxY) {
+      minY -= 1;
+      maxY += 1;
+    }
     return { minX, maxX, minY, maxY };
   }, [embeddings]);
 
-  const project = (x: number, y: number) => {
+  // project to pixel coords inside svg width/height (svgW, svgH match viewport)
+  const project = (x: number, y: number, svgW: number, svgH: number) => {
     const { minX, maxX, minY, maxY } = bounds;
-    const w = containerSize.w - 2 * padding;
-    const h = containerSize.h - 2 * padding;
+    const w = svgW - 2 * padding;
+    const h = svgH - 2 * padding;
     const px = padding + ((x - minX) / (maxX - minX)) * w;
     const py = padding + (1 - (y - minY) / (maxY - minY)) * h;
     return { px, py };
@@ -165,22 +137,29 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
 
   function getCategoryIcon(cat: string) {
     switch (cat) {
-      case "siren": return IconSiren;
-      case "chirping_birds": return IconBird;
-      case "breathing": return IconBreathing;
-      case "washing_machine": return IconWashingMachine;
-      case "crying_baby": return IconCryingBaby;
-      default: return IconSiren;
+      case "siren":
+        return IconSiren;
+      case "chirping_birds":
+        return IconBird;
+      case "breathing":
+        return IconBreathing;
+      case "washing_machine":
+        return IconWashingMachine;
+      case "crying_baby":
+        return IconCryingBaby;
+      default:
+        return IconSiren;
     }
   }
 
-  // tiny deterministic jitter
+  // tiny deterministic jitter (avoid perfect overlaps)
   const jitter = useMemo(() => {
-    const xs = embeddings.map(e => Number(e.x));
-    return 1e-3 * Math.max(1.0, (Math.max(...xs) - Math.min(...xs)));
+    const xs = embeddings.map((e) => Number(e.x));
+    if (xs.length === 0) return 0.001;
+    return 1e-3 * Math.max(1.0, Math.max(...xs) - Math.min(...xs));
   }, [embeddings]);
 
-  // audio play / pause toggle
+  // audio play/pause toggle
   const onPointClick = (file: string) => {
     const url = buildAudioUrl(file);
     const audio = audioRef.current;
@@ -206,7 +185,6 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
     }
   };
 
-  // keep playing state synced on end / pause
   useEffect(() => {
     const a = audioRef.current;
     if (!a) return;
@@ -222,13 +200,12 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
     };
   }, []);
 
-  // pointer-based drag fallback (touch + mouse unified via Pointer Events)
+  // pointer-based drag fallback (touch + mouse)
   const draggingCatRef = useRef<string | null>(null);
   const pointerIdRef = useRef<number | null>(null);
   const ghostRef = useRef<HTMLElement | null>(null);
 
   const makeGhost = (cat: string, x: number, y: number) => {
-    // remove old
     if (ghostRef.current && ghostRef.current.parentNode) ghostRef.current.parentNode.removeChild(ghostRef.current);
     const g = document.createElement("div");
     g.style.position = "fixed";
@@ -267,8 +244,7 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
         if (pt) {
           const file = pt.getAttribute("data-file");
           if (file && draggingCatRef.current) {
-            // perform synthetic drop
-            setGuesses(prev => ({ ...prev, [file]: draggingCatRef.current as string }));
+            setGuesses((prev) => ({ ...prev, [file]: draggingCatRef.current as string }));
           }
         }
       }
@@ -282,8 +258,13 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
   };
 
   const startPointerDrag = (ev: React.PointerEvent, category: string) => {
-    try { ev.preventDefault(); ev.stopPropagation(); } catch {}
-    try { (ev.currentTarget as Element).setPointerCapture?.(ev.pointerId); } catch {}
+    try {
+      ev.preventDefault();
+      ev.stopPropagation();
+    } catch {}
+    try {
+      (ev.currentTarget as Element).setPointerCapture?.(ev.pointerId);
+    } catch {}
     draggingCatRef.current = category;
     pointerIdRef.current = ev.pointerId;
     makeGhost(category, ev.clientX, ev.clientY);
@@ -301,57 +282,64 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
 
   // desktop drag handlers
   const onPaletteDragStart = (ev: React.DragEvent, category: string) => {
-    try { ev.dataTransfer.setData("text/plain", category); } catch {}
+    try {
+      ev.dataTransfer.setData("text/plain", category);
+    } catch {}
   };
 
   const onPointDragOver = (ev: React.DragEvent) => ev.preventDefault();
   const onPointDrop = (ev: React.DragEvent, file: string) => {
     ev.preventDefault();
     const cat = ev.dataTransfer.getData("text/plain");
-    if (cat && typeof cat === "string") setGuesses(prev => ({ ...prev, [file]: cat }));
+    if (cat && typeof cat === "string") setGuesses((prev) => ({ ...prev, [file]: cat }));
   };
 
   const onPointDoubleClick = (file: string) => {
-    setGuesses(prev => {
-      const c = { ...prev };
-      delete c[file];
-      return c;
+    setGuesses((prev) => {
+      const copy = { ...prev };
+      delete copy[file];
+      return copy;
     });
   };
 
   const onCloseModal = () => setShowModal(false);
-  const onResetGuesses = () => { setGuesses({}); setShowModal(false); };
+  const onResetGuesses = () => {
+    setGuesses({});
+    setShowModal(false);
+  };
 
-  // rendering
+  // SVG covers the viewport. We'll rotate the SVG element when portrait.
+  const svgStyle: React.CSSProperties = isPortrait
+    ? {
+        position: "fixed",
+        left: 0,
+        top: 0,
+        width: "100vw",
+        height: "100vh",
+        transform: "rotate(90deg) translate(0, -100%)",
+        transformOrigin: "top left",
+        zIndex: 1,
+      }
+    : {
+        position: "fixed",
+        left: 0,
+        top: 0,
+        width: "100vw",
+        height: "100vh",
+        transform: "none",
+        zIndex: 1,
+      };
+
+  // svg logical dims for projection: we use viewport pixel size
+  const svgW = containerSize.w;
+  const svgH = containerSize.h;
+
   return (
-    <div className="embed-viewer-root-fullscreen" style={{ position: "relative" }}>
-      {/* orientation overlay (blocks interaction on portrait phones) */}
-      {isPortrait && (
-        <div className="landscape-overlay" role="dialog" aria-modal="true" aria-label="Rotate device to landscape">
-          <div className="landscape-card" role="document">
-            <h3 style={{ marginTop: 0 }}>Rotate your device</h3>
-            <p style={{ margin: "8px 0 14px", color: "rgba(255,255,255,0.9)" }}>
-              This game is best played in <strong>landscape</strong> orientation. Please rotate your phone.
-            </p>
-            <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 6 }}>
-              <button onClick={() => tryLockLandscape()} className="landscape-btn" aria-label="Try fullscreen and rotate">
-                Try fullscreen & rotate
-              </button>
-              <button onClick={() => setIsPortrait(false)} className="landscape-btn secondary" aria-label="Continue in portrait">
-                Continue anyway
-              </button>
-            </div>
-            <small style={{ display: "block", marginTop: 12, color: "rgba(255,255,255,0.6)" }}>
-              Tip: If the button does nothing, rotate your device manually.
-            </small>
-          </div>
-        </div>
-      )}
-
-      {/* lightweight top-left instructions */}
+    <div style={{ position: "relative", width: "100vw", height: "100vh", overflow: "hidden" }}>
+      {/* fixed top-left instructions (pinned to viewport) */}
       <div
         style={{
-          position: "absolute",
+          position: "fixed",
           top: 12,
           left: 12,
           zIndex: 1500,
@@ -370,20 +358,26 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
         <strong style={{ display: "block", marginBottom: 4 }}>How to play</strong>
         <div>Tap a circle to play the sound.</div>
         <div>Drag an icon from the palette (bottom-right) onto a circle to label it.</div>
-        <div><strong>Note:</strong> Headphones recommended.</div>
       </div>
 
-      {/* SVG canvas */}
-      <svg width={containerSize.w} height={containerSize.h} className="embed-svg-full" style={{ display: "block" }}>
-        <rect x={0} y={0} width={containerSize.w} height={containerSize.h} fill="#071030" />
+      {/* SVG: fixed fullscreen; rotated when portrait */}
+      <svg
+        width={svgW}
+        height={svgH}
+        viewBox={`0 0 ${svgW} ${svgH}`}
+        preserveAspectRatio="none"
+        className="embed-svg-full"
+        style={svgStyle}
+      >
+        <rect x={0} y={0} width={svgW} height={svgH} fill="#071030" />
         {embeddings.map((e, idx) => {
           const x = Number(e.x) + ((idx % 2 === 0 ? 1 : -1) * jitter * 0.5);
           const y = Number(e.y) + ((idx % 3 === 0 ? 1 : -1) * jitter * 0.5);
-          const { px, py } = project(x, y);
+          const { px, py } = project(x, y, svgW, svgH);
           const isPlaying = playingFile === e.file;
           const guessed = guesses[e.file];
-          const fillColor = guessed ? (CATEGORY_COLOR[guessed] ?? "#e0e0e0") : (isPlaying ? "#0b5c99" : "#ffffff");
-          const strokeColor = guessed ? darken(CATEGORY_COLOR[guessed] ?? "#888") : (isPlaying ? "#0e4a7c" : "#6b7280");
+          const fillColor = guessed ? (CATEGORY_COLOR[guessed] ?? "#e0e0e0") : isPlaying ? "#0b5c99" : "#ffffff";
+          const strokeColor = guessed ? darken(CATEGORY_COLOR[guessed] ?? "#888") : isPlaying ? "#0e4a7c" : "#6b7280";
           const key = `${e.file}-${idx}`;
           const tooltip = `${e.file} — actual: ${e.category} — guessed: ${guessed ?? "none"}`;
 
@@ -401,14 +395,21 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
               role="button"
               aria-label={tooltip}
             >
-              {/* only show native tooltip at the end to avoid revealing labels during play */}
+              {/* tooltip only when finished so players can't peek */}
               {showModal ? <title>{tooltip}</title> : null}
 
               <circle r={16} fill="rgba(255,255,255,0.02)" stroke="none" />
               <circle r={12} fill={fillColor} stroke={strokeColor} strokeWidth={isPlaying ? 2.2 : 1.0} />
 
               {guessed ? (
-                <image href={getCategoryIcon(guessed)} x={-12} y={-12} width={24} height={24} style={{ pointerEvents: "none" }} />
+                <image
+                  href={getCategoryIcon(guessed)}
+                  x={-12}
+                  y={-12}
+                  width={24}
+                  height={24}
+                  style={{ pointerEvents: "none" }}
+                />
               ) : isPlaying ? (
                 <>
                   <rect x={-5} y={-7} width={3} height={14} fill="#fff" rx={0.6} />
@@ -422,9 +423,21 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
         })}
       </svg>
 
-      {/* palette (bottom-right) */}
-      <div className="palette-root" aria-hidden style={{ touchAction: "none" }}>
-        {PALETTE_CATEGORIES.map(cat => (
+      {/* fixed bottom-right palette */}
+      <div
+        className="palette-root"
+        aria-hidden
+        style={{
+          position: "fixed",
+          right: 18,
+          bottom: 18,
+          display: "flex",
+          gap: 10,
+          zIndex: 1600,
+          touchAction: "none",
+        }}
+      >
+        {PALETTE_CATEGORIES.map((cat) => (
           <div
             key={cat}
             className="palette-item"
@@ -440,28 +453,67 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
         ))}
       </div>
 
-      {/* modal when done */}
+      {/* modal */}
       {showModal && (
-        <div style={{
-          position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
-          background: "rgba(0,0,0,0.55)", zIndex: 2000
-        }} role="dialog" aria-modal="true">
-          <div style={{
-            background: "#071030", color: "#fff", padding: 24, borderRadius: 10, minWidth: 320, maxWidth: "90%", textAlign: "center",
-            boxShadow: "0 10px 40px rgba(0,0,0,0.6)"
-          }}>
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(0,0,0,0.55)",
+            zIndex: 2000,
+          }}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            style={{
+              background: "#071030",
+              color: "#fff",
+              padding: 24,
+              borderRadius: 10,
+              minWidth: 320,
+              maxWidth: "90%",
+              textAlign: "center",
+              boxShadow: "0 10px 40px rgba(0,0,0,0.6)",
+            }}
+          >
             <h2 style={{ margin: 0, marginBottom: 12 }}>Congratulations!</h2>
             <p style={{ margin: 0, marginBottom: 18, fontSize: 16 }}>
-              Your final score: <strong style={{ fontSize: 18 }}>{correctCount} / {embeddings.length}</strong>
+              Your final score:{" "}
+              <strong style={{ fontSize: 18 }}>
+                {correctCount} / {embeddings.length}
+              </strong>
             </p>
             <div style={{ display: "flex", gap: 12, justifyContent: "center", marginTop: 8 }}>
-              <button onClick={onCloseModal} style={{
-                padding: "8px 14px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.12)",
-                background: "transparent", color: "#fff", cursor: "pointer"
-              }}>Close</button>
-              <button onClick={onResetGuesses} style={{
-                padding: "8px 14px", borderRadius: 6, border: "none", background: "#ff6b6b", color: "#fff", cursor: "pointer"
-              }}>Reset guesses</button>
+              <button
+                onClick={onCloseModal}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 6,
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  background: "transparent",
+                  color: "#fff",
+                  cursor: "pointer",
+                }}
+              >
+                Close
+              </button>
+              <button
+                onClick={onResetGuesses}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 6,
+                  border: "none",
+                  background: "#ff6b6b",
+                  color: "#fff",
+                  cursor: "pointer",
+                }}
+              >
+                Reset guesses
+              </button>
             </div>
           </div>
         </div>
@@ -474,14 +526,14 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
 
 export default EmbeddingViewer;
 
-// small helper
+/* helper */
 function darken(hex: string, amt = -24) {
   try {
     const parsed = hex.replace("#", "");
     const num = parseInt(parsed, 16);
     let r = (num >> 16) + amt;
-    let g = ((num >> 8) & 0x00FF) + amt;
-    let b = (num & 0x0000FF) + amt;
+    let g = ((num >> 8) & 0x00ff) + amt;
+    let b = (num & 0x0000ff) + amt;
     r = Math.max(0, Math.min(255, r));
     g = Math.max(0, Math.min(255, g));
     b = Math.max(0, Math.min(255, b));
