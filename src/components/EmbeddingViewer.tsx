@@ -30,8 +30,7 @@ function buildAudioUrl(filename: string) {
 
 type Props = {
   padding?: number;
-  // optional aspect ratio (height/width), default = 9/16 (landscape)
-  aspectRatio?: number;
+  aspectRatio?: number; // height/width, default 9/16
 };
 
 const EmbeddingViewer: React.FC<Props> = ({ padding = 40, aspectRatio = 9 / 16 }) => {
@@ -42,7 +41,7 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40, aspectRatio = 9 / 16 }
   const [guesses, setGuesses] = useState<Record<string, string>>({});
   const [showModal, setShowModal] = useState(false);
 
-  // update viewport on resize/orientation change
+  // update viewport
   useEffect(() => {
     const update = () =>
       setViewport({
@@ -60,6 +59,7 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40, aspectRatio = 9 / 16 }
 
   const isLandscape = viewport.w >= viewport.h;
 
+  // embeddings frozen copy
   const embeddings = useMemo(() => esc50Embeddings.slice(), []);
 
   const totalFlagged = useMemo(() => Object.keys(guesses).length, [guesses]);
@@ -77,16 +77,12 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40, aspectRatio = 9 / 16 }
     }
   }, [totalFlagged, embeddings.length]);
 
-  // compute canvas size:
-  // - width = viewport.w
-  // - height = min(viewport.h, viewport.w * aspectRatio)
+  // canvas sizing (width fills viewport; height capped to aspect ratio)
   const canvasW = viewport.w;
   const canvasH = Math.min(viewport.h, Math.round(viewport.w * aspectRatio));
+  const canvasTop = Math.round((viewport.h - canvasH) / 2); // vertical centering when shorter
 
-  // compute top offset to center canvas vertically if canvasH < viewport.h
-  const canvasTop = Math.round((viewport.h - canvasH) / 2);
-
-  // compute bounds for projection (based on numeric coords)
+  // bounds for projection
   const bounds = useMemo(() => {
     if (!embeddings || embeddings.length === 0) return { minX: 0, maxX: 1, minY: 0, maxY: 1 };
     let minX = Infinity,
@@ -114,7 +110,7 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40, aspectRatio = 9 / 16 }
     return { minX, maxX, minY, maxY };
   }, [embeddings]);
 
-  // project into canvas pixel space (width = canvasW, height = canvasH)
+  // project into canvas coordinates
   const project = (x: number, y: number) => {
     const { minX, maxX, minY, maxY } = bounds;
     const w = canvasW - 2 * padding;
@@ -141,14 +137,14 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40, aspectRatio = 9 / 16 }
     }
   }
 
-  // deterministic tiny jitter
+  // jitter to avoid complete overplot
   const jitter = useMemo(() => {
     const xs = embeddings.map((e) => Number(e.x));
     if (xs.length === 0) return 0.001;
     return 1e-3 * Math.max(1.0, Math.max(...xs) - Math.min(...xs));
   }, [embeddings]);
 
-  // play/pause behavior
+  // play/pause
   const onPointClick = (file: string) => {
     const url = buildAudioUrl(file);
     const audio = audioRef.current;
@@ -189,12 +185,12 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40, aspectRatio = 9 / 16 }
     };
   }, []);
 
-  // pointer drag fallback (touch + mouse)
+  // Pointer-based drag (touch/mouse) with ghost element
   const draggingCatRef = useRef<string | null>(null);
   const ghostRef = useRef<HTMLElement | null>(null);
 
   const makeGhost = (cat: string, x: number, y: number) => {
-    if (ghostRef.current && ghostRef.current.parentNode) ghostRef.current.parentNode.removeChild(ghostRef.current);
+    cleanupGhost();
     const g = document.createElement("div");
     g.style.position = "fixed";
     g.style.left = `${x - 20}px`;
@@ -224,15 +220,47 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40, aspectRatio = 9 / 16 }
     ghostRef.current.style.top = `${ev.clientY - 20}px`;
   };
 
+  // --- IMPORTANT FIX: use geometry-based nearest-point pick on pointer up ---
   const onPointerUpWindow = (ev: PointerEvent) => {
     try {
-      const el = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
-      if (el) {
-        const pt = el.closest(".embed-point") as HTMLElement | null;
-        if (pt) {
-          const file = pt.getAttribute("data-file");
-          if (file && draggingCatRef.current) {
-            setGuesses((prev) => ({ ...prev, [file]: draggingCatRef.current as string }));
+      // compute canvas-local coordinates:
+      // svg is at left:0 top:canvasTop, so canvasX = clientX; canvasY = clientY - canvasTop
+      const canvasX = ev.clientX;
+      const canvasY = ev.clientY - canvasTop;
+
+      // larger adaptive radius for forgiving drops:
+      const radius = Math.max(48, Math.round(Math.min(canvasW, canvasH) * 0.075)); // min 48px or 7.5% of min dimension
+      const radius2 = radius * radius;
+
+      // find nearest plotted point in pixel coordinates
+      let bestIdx = -1;
+      let bestDist2 = Infinity;
+      for (let i = 0; i < embeddings.length; i++) {
+        const e = embeddings[i];
+        const x = Number(e.x) + ((i % 2 === 0 ? 1 : -1) * jitter * 0.5);
+        const y = Number(e.y) + ((i % 3 === 0 ? 1 : -1) * jitter * 0.5);
+        const { px, py } = project(x, y);
+        const dx = px - canvasX;
+        const dy = py - canvasY;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < bestDist2) {
+          bestDist2 = d2;
+          bestIdx = i;
+        }
+      }
+
+      if (bestIdx >= 0 && bestDist2 <= radius2 && draggingCatRef.current) {
+        const file = embeddings[bestIdx].file;
+        setGuesses((prev) => ({ ...prev, [file]: draggingCatRef.current as string }));
+      } else {
+        // fallback: attempt DOM hit-test (rare), but keep geometry primary
+        const el = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
+        if (el) {
+          const pt = el.closest(".embed-point") as HTMLElement | null;
+          if (pt) {
+            const fileAttr = pt.getAttribute("data-file");
+            const cat = draggingCatRef.current;
+            if (fileAttr && cat) setGuesses((prev) => ({ ...prev, [fileAttr]: cat }));
           }
         }
       }
@@ -263,7 +291,7 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40, aspectRatio = 9 / 16 }
     };
   }, []);
 
-  // desktop drag handlers
+  // Desktop drag/drop handlers (kept)
   const onPaletteDragStart = (ev: React.DragEvent, category: string) => {
     try {
       ev.dataTransfer.setData("text/plain", category);
@@ -306,7 +334,7 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40, aspectRatio = 9 / 16 }
         padding: 0,
       }}
     >
-      {/* If not landscape, show overlay telling user to rotate */}
+      {/* Portrait overlay */}
       {!isLandscape && (
         <div
           style={{
@@ -332,7 +360,7 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40, aspectRatio = 9 / 16 }
         </div>
       )}
 
-      {/* Top-left instructions (fixed) */}
+      {/* Top-left instructions */}
       <div
         style={{
           position: "fixed",
@@ -356,7 +384,7 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40, aspectRatio = 9 / 16 }
         <div>Drag an icon from the palette (bottom-right) onto a circle to label it.</div>
       </div>
 
-      {/* SVG canvas: width fills viewport, height capped to aspect ratio; canvas is centered vertically */}
+      {/* Canvas */}
       <svg
         width={canvasW}
         height={canvasH}
@@ -401,7 +429,6 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40, aspectRatio = 9 / 16 }
               role="button"
               aria-label={tooltip}
             >
-              {/* only show tooltip when game finished */}
               {showModal ? <title>{tooltip}</title> : null}
 
               <circle r={16} fill="rgba(255,255,255,0.02)" stroke="none" />
@@ -422,7 +449,7 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40, aspectRatio = 9 / 16 }
         })}
       </svg>
 
-      {/* fixed bottom-right palette */}
+      {/* palette */}
       <div
         className="palette-root"
         aria-hidden
