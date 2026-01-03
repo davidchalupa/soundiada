@@ -1,3 +1,4 @@
+// src/components/EmbeddingViewer.tsx
 import React, { useRef, useState, useMemo, useEffect } from "react";
 import { esc50Embeddings } from "../resources/embeddings";
 import "./EmbeddingViewer.css";
@@ -33,16 +34,14 @@ type Props = {
 };
 
 const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
-  // refs & state
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playingFile, setPlayingFile] = useState<string | null>(null);
-  const [containerSize, setContainerSize] = useState({ w: window.innerWidth, h: window.innerHeight });
+  const [viewport, setViewport] = useState({ w: window.innerWidth, h: window.innerHeight });
   const [guesses, setGuesses] = useState<Record<string, string>>({});
   const [showModal, setShowModal] = useState(false);
 
   // portrait detection
   const [isPortrait, setIsPortrait] = useState(() => {
-    if (typeof window === "undefined") return false;
     return !!(window.matchMedia && window.matchMedia("(orientation: portrait)").matches);
   });
 
@@ -54,6 +53,7 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
     [guesses, embeddings]
   );
 
+  // show modal when all labeled
   useEffect(() => {
     if (embeddings.length > 0 && totalFlagged === embeddings.length) {
       setShowModal(true);
@@ -63,41 +63,40 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
     }
   }, [totalFlagged, embeddings.length]);
 
-  // responsive container sizing: track viewport
+  // update viewport and orientation on resize / orientation change
   useEffect(() => {
-    const update = () => setContainerSize({ w: Math.max(200, window.innerWidth), h: Math.max(160, window.innerHeight) });
+    const update = () => setViewport({ w: Math.max(200, window.innerWidth), h: Math.max(160, window.innerHeight) });
     update();
-    window.addEventListener("resize", update, { passive: true });
-    return () => window.removeEventListener("resize", update);
-  }, []);
-
-  // keep portrait flag updated
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const mq = window.matchMedia("(orientation: portrait)");
-    const mqHandler = (ev: any) => setIsPortrait(!!ev.matches);
-    if (typeof mq.addEventListener === "function") {
-      mq.addEventListener("change", mqHandler as any);
-    } else {
-      // older browsers
-      // @ts-ignore
-      mq.addListener?.(mqHandler);
-    }
-    const onResize = () => setIsPortrait(!!(window.matchMedia && window.matchMedia("(orientation: portrait)").matches));
+    const onResize = () => {
+      update();
+      setIsPortrait(!!(window.matchMedia && window.matchMedia("(orientation: portrait)").matches));
+    };
     window.addEventListener("resize", onResize, { passive: true });
-    setIsPortrait(!!(window.matchMedia && window.matchMedia("(orientation: portrait)").matches));
+    // also handle orientationchange just in case
+    window.addEventListener("orientationchange", onResize, { passive: true });
     return () => {
-      if (typeof mq.removeEventListener === "function") {
-        mq.removeEventListener("change", mqHandler as any);
-      } else {
-        // @ts-ignore
-        mq.removeListener?.(mqHandler);
-      }
       window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
     };
   }, []);
 
-  // compute projection bounds (based on the numeric embedding coordinates)
+  // compute logical landscape canvas size (cw x ch)
+  // cw: the longer side, ch: the shorter side -> this defines the "landscape" coordinate system
+  const cw = Math.max(viewport.w, viewport.h);
+  const ch = Math.min(viewport.w, viewport.h);
+
+  // compute scale to fit the logical canvas into the actual viewport (after rotation if portrait)
+  // If portrait, the logical canvas will be rotated to fit viewport, so we compare viewport.w to ch and viewport.h to cw
+  const scale = useMemo(() => {
+    if (isPortrait) {
+      // rotated mapping: logical (cw x ch) -> rotated bounding (ch x cw)
+      return Math.min(viewport.w / ch, viewport.h / cw);
+    } else {
+      return Math.min(viewport.w / cw, viewport.h / ch);
+    }
+  }, [viewport.w, viewport.h, cw, ch, isPortrait]);
+
+  // bounds for projection (based on numeric embedding coords)
   const bounds = useMemo(() => {
     if (!embeddings || embeddings.length === 0) return { minX: 0, maxX: 1, minY: 0, maxY: 1 };
     let minX = Infinity,
@@ -125,11 +124,11 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
     return { minX, maxX, minY, maxY };
   }, [embeddings]);
 
-  // project to pixel coords inside svg width/height (svgW, svgH match viewport)
-  const project = (x: number, y: number, svgW: number, svgH: number) => {
+  // project coordinates to pixels inside logical canvas (cw x ch)
+  const project = (x: number, y: number) => {
     const { minX, maxX, minY, maxY } = bounds;
-    const w = svgW - 2 * padding;
-    const h = svgH - 2 * padding;
+    const w = cw - 2 * padding;
+    const h = ch - 2 * padding;
     const px = padding + ((x - minX) / (maxX - minX)) * w;
     const py = padding + (1 - (y - minY) / (maxY - minY)) * h;
     return { px, py };
@@ -152,14 +151,14 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
     }
   }
 
-  // tiny deterministic jitter (avoid perfect overlaps)
+  // tiny deterministic jitter
   const jitter = useMemo(() => {
     const xs = embeddings.map((e) => Number(e.x));
     if (xs.length === 0) return 0.001;
     return 1e-3 * Math.max(1.0, Math.max(...xs) - Math.min(...xs));
   }, [embeddings]);
 
-  // audio play/pause toggle
+  // audio play/pause
   const onPointClick = (file: string) => {
     const url = buildAudioUrl(file);
     const audio = audioRef.current;
@@ -200,7 +199,7 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
     };
   }, []);
 
-  // pointer-based drag fallback (touch + mouse)
+  // pointer drag fallback
   const draggingCatRef = useRef<string | null>(null);
   const pointerIdRef = useRef<number | null>(null);
   const ghostRef = useRef<HTMLElement | null>(null);
@@ -308,35 +307,36 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
     setShowModal(false);
   };
 
-  // SVG covers the viewport. We'll rotate the SVG element when portrait.
-  const svgStyle: React.CSSProperties = isPortrait
-    ? {
-        position: "fixed",
-        left: 0,
-        top: 0,
-        width: "100vw",
-        height: "100vh",
-        transform: "rotate(90deg) translate(0, -100%)",
-        transformOrigin: "top left",
-        zIndex: 1,
-      }
-    : {
-        position: "fixed",
-        left: 0,
-        top: 0,
-        width: "100vw",
-        height: "100vh",
-        transform: "none",
-        zIndex: 1,
-      };
+  // content container style: logical canvas cw x ch, centered, rotated when portrait, scaled by `scale`
+  const contentStyle: React.CSSProperties = {
+    position: "absolute",
+    left: "50%",
+    top: "50%",
+    width: `${cw}px`,
+    height: `${ch}px`,
+    transformOrigin: "center center",
+    // order: translate to center, then (if portrait) rotate 90deg, then scale to fit viewport
+    transform: `${isPortrait ? "translate(-50%,-50%) rotate(90deg) " : "translate(-50%,-50%) "} scale(${scale})`,
+    willChange: "transform",
+    pointerEvents: "auto",
+    touchAction: "none",
+    zIndex: 1,
+  };
 
-  // svg logical dims for projection: we use viewport pixel size
-  const svgW = containerSize.w;
-  const svgH = containerSize.h;
+  // The outer wrapper spans whole viewport; contentStyle centers and rotates/scales the logical canvas inside it
+  const wrapperStyle: React.CSSProperties = {
+    position: "fixed",
+    left: 0,
+    top: 0,
+    width: "100vw",
+    height: "100vh",
+    overflow: "hidden",
+    zIndex: 1,
+  };
 
   return (
     <div style={{ position: "relative", width: "100vw", height: "100vh", overflow: "hidden" }}>
-      {/* fixed top-left instructions (pinned to viewport) */}
+      {/* fixed top-left instructions */}
       <div
         style={{
           position: "fixed",
@@ -360,68 +360,59 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40 }) => {
         <div>Drag an icon from the palette (bottom-right) onto a circle to label it.</div>
       </div>
 
-      {/* SVG: fixed fullscreen; rotated when portrait */}
-      <svg
-        width={svgW}
-        height={svgH}
-        viewBox={`0 0 ${svgW} ${svgH}`}
-        preserveAspectRatio="none"
-        className="embed-svg-full"
-        style={svgStyle}
-      >
-        <rect x={0} y={0} width={svgW} height={svgH} fill="#071030" />
-        {embeddings.map((e, idx) => {
-          const x = Number(e.x) + ((idx % 2 === 0 ? 1 : -1) * jitter * 0.5);
-          const y = Number(e.y) + ((idx % 3 === 0 ? 1 : -1) * jitter * 0.5);
-          const { px, py } = project(x, y, svgW, svgH);
-          const isPlaying = playingFile === e.file;
-          const guessed = guesses[e.file];
-          const fillColor = guessed ? (CATEGORY_COLOR[guessed] ?? "#e0e0e0") : isPlaying ? "#0b5c99" : "#ffffff";
-          const strokeColor = guessed ? darken(CATEGORY_COLOR[guessed] ?? "#888") : isPlaying ? "#0e4a7c" : "#6b7280";
-          const key = `${e.file}-${idx}`;
-          const tooltip = `${e.file} — actual: ${e.category} — guessed: ${guessed ?? "none"}`;
+      {/* wrapper fills viewport */}
+      <div style={wrapperStyle}>
+        {/* content is logical canvas (cw x ch) centered, rotated & scaled to fit */}
+        <div style={contentStyle}>
+          <svg width={cw} height={ch} viewBox={`0 0 ${cw} ${ch}`} preserveAspectRatio="none">
+            <rect x={0} y={0} width={cw} height={ch} fill="#071030" />
+            {embeddings.map((e, idx) => {
+              const x = Number(e.x) + ((idx % 2 === 0 ? 1 : -1) * jitter * 0.5);
+              const y = Number(e.y) + ((idx % 3 === 0 ? 1 : -1) * jitter * 0.5);
+              const { px, py } = project(x, y);
+              const isPlaying = playingFile === e.file;
+              const guessed = guesses[e.file];
+              const fillColor = guessed ? (CATEGORY_COLOR[guessed] ?? "#e0e0e0") : isPlaying ? "#0b5c99" : "#ffffff";
+              const strokeColor = guessed ? darken(CATEGORY_COLOR[guessed] ?? "#888") : isPlaying ? "#0e4a7c" : "#6b7280";
+              const key = `${e.file}-${idx}`;
+              const tooltip = `${e.file} — actual: ${e.category} — guessed: ${guessed ?? "none"}`;
 
-          return (
-            <g
-              key={key}
-              transform={`translate(${px}, ${py})`}
-              className="embed-point"
-              data-file={e.file}
-              style={{ cursor: "pointer" }}
-              onClick={() => onPointClick(e.file)}
-              onDoubleClick={() => onPointDoubleClick(e.file)}
-              onDragOver={onPointDragOver}
-              onDrop={(ev) => onPointDrop(ev, e.file)}
-              role="button"
-              aria-label={tooltip}
-            >
-              {/* tooltip only when finished so players can't peek */}
-              {showModal ? <title>{tooltip}</title> : null}
+              return (
+                <g
+                  key={key}
+                  transform={`translate(${px}, ${py})`}
+                  className="embed-point"
+                  data-file={e.file}
+                  style={{ cursor: "pointer" }}
+                  onClick={() => onPointClick(e.file)}
+                  onDoubleClick={() => onPointDoubleClick(e.file)}
+                  onDragOver={onPointDragOver}
+                  onDrop={(ev) => onPointDrop(ev, e.file)}
+                  role="button"
+                  aria-label={tooltip}
+                >
+                  {/* tooltip only when finished */}
+                  {showModal ? <title>{tooltip}</title> : null}
 
-              <circle r={16} fill="rgba(255,255,255,0.02)" stroke="none" />
-              <circle r={12} fill={fillColor} stroke={strokeColor} strokeWidth={isPlaying ? 2.2 : 1.0} />
+                  <circle r={16} fill="rgba(255,255,255,0.02)" stroke="none" />
+                  <circle r={12} fill={fillColor} stroke={strokeColor} strokeWidth={isPlaying ? 2.2 : 1.0} />
 
-              {guessed ? (
-                <image
-                  href={getCategoryIcon(guessed)}
-                  x={-12}
-                  y={-12}
-                  width={24}
-                  height={24}
-                  style={{ pointerEvents: "none" }}
-                />
-              ) : isPlaying ? (
-                <>
-                  <rect x={-5} y={-7} width={3} height={14} fill="#fff" rx={0.6} />
-                  <rect x={1.5} y={-7} width={3} height={14} fill="#fff" rx={0.6} />
-                </>
-              ) : (
-                <polygon points="-4,-6 -4,6 6,0" fill="#111" />
-              )}
-            </g>
-          );
-        })}
-      </svg>
+                  {guessed ? (
+                    <image href={getCategoryIcon(guessed)} x={-12} y={-12} width={24} height={24} style={{ pointerEvents: "none" }} />
+                  ) : isPlaying ? (
+                    <>
+                      <rect x={-5} y={-7} width={3} height={14} fill="#fff" rx={0.6} />
+                      <rect x={1.5} y={-7} width={3} height={14} fill="#fff" rx={0.6} />
+                    </>
+                  ) : (
+                    <polygon points="-4,-6 -4,6 6,0" fill="#111" />
+                  )}
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+      </div>
 
       {/* fixed bottom-right palette */}
       <div
