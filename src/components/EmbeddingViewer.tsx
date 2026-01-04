@@ -1,3 +1,4 @@
+// src/components/EmbeddingViewer.tsx
 import React, { useRef, useState, useMemo, useEffect } from "react";
 import { esc50Embeddings } from "../resources/embeddings";
 import "./EmbeddingViewer.css";
@@ -41,6 +42,10 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40, aspectRatio = 9 / 16 }
   const [guesses, setGuesses] = useState<Record<string, string>>({});
   const [showModal, setShowModal] = useState(false);
 
+  // Drag active tracking (used to avoid showing modal while user drags)
+  const isDraggingRef = useRef(false);
+  const [isDragging, setIsDragging] = useState(false);
+
   // update viewport
   useEffect(() => {
     const update = () =>
@@ -62,20 +67,43 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40, aspectRatio = 9 / 16 }
   // embeddings frozen copy
   const embeddings = useMemo(() => esc50Embeddings.slice(), []);
 
-  const totalFlagged = useMemo(() => Object.keys(guesses).length, [guesses]);
+  const totalFlagged = useMemo(() => {
+    // count only files that are in the current embedding list and have a valid guess
+    const validSet = new Set(embeddings.map((e) => e.file));
+    let cnt = 0;
+    for (const f of embeddings.map((e) => e.file)) {
+      if (guesses[f] && typeof guesses[f] === "string") cnt++;
+    }
+    return cnt;
+  }, [guesses, embeddings]);
+
   const correctCount = useMemo(
     () => embeddings.reduce((acc, e) => (guesses[e.file] === e.category ? acc + 1 : acc), 0),
     [guesses, embeddings]
   );
 
+  // only show modal when all embedding files are labeled AND no drag is active
   useEffect(() => {
-    if (embeddings.length > 0 && totalFlagged === embeddings.length) {
-      setShowModal(true);
-      audioRef.current?.pause();
+    // compute labeled count precisely from visible embeddings
+    const labeledCount = embeddings.reduce((acc, e) => (guesses[e.file] ? acc + 1 : acc), 0);
+
+    // debounce slightly to avoid race with pointerup/dragend
+    let t: number | null = null;
+    if (labeledCount === embeddings.length && !isDraggingRef.current) {
+      t = window.setTimeout(() => {
+        // double-check guard
+        if (embeddings.reduce((a, e) => (guesses[e.file] ? a + 1 : a), 0) === embeddings.length && !isDraggingRef.current) {
+          audioRef.current?.pause();
+          setShowModal(true);
+        }
+      }, 120);
     } else {
       setShowModal(false);
     }
-  }, [totalFlagged, embeddings.length]);
+    return () => {
+      if (t) window.clearTimeout(t);
+    };
+  }, [guesses, embeddings, isDragging]);
 
   // canvas sizing (width fills viewport; height capped to aspect ratio)
   const canvasW = viewport.w;
@@ -224,7 +252,6 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40, aspectRatio = 9 / 16 }
   const onPointerUpWindow = (ev: PointerEvent) => {
     try {
       // compute canvas-local coordinates:
-      // svg is at left:0 top:canvasTop, so canvasX = clientX; canvasY = clientY - canvasTop
       const canvasX = ev.clientX;
       const canvasY = ev.clientY - canvasTop;
 
@@ -267,6 +294,8 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40, aspectRatio = 9 / 16 }
     } finally {
       cleanupGhost();
       draggingCatRef.current = null;
+      isDraggingRef.current = false;
+      setIsDragging(false);
       window.removeEventListener("pointermove", onPointerMoveWindow);
       window.removeEventListener("pointerup", onPointerUpWindow);
     }
@@ -278,6 +307,8 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40, aspectRatio = 9 / 16 }
       ev.stopPropagation();
     } catch {}
     draggingCatRef.current = category;
+    isDraggingRef.current = true;
+    setIsDragging(true);
     makeGhost(category, ev.clientX, ev.clientY);
     window.addEventListener("pointermove", onPointerMoveWindow, { passive: true } as any);
     window.addEventListener("pointerup", onPointerUpWindow);
@@ -291,18 +322,41 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40, aspectRatio = 9 / 16 }
     };
   }, []);
 
-  // Desktop drag/drop handlers (kept)
+  // Desktop drag/drop handlers (kept) - also mark dragging state
   const onPaletteDragStart = (ev: React.DragEvent, category: string) => {
     try {
       ev.dataTransfer.setData("text/plain", category);
+      isDraggingRef.current = true;
+      setIsDragging(true);
     } catch {}
   };
+
+  // ensure we clear dragging state on native dragend/drop anywhere
+  useEffect(() => {
+    const handleDragEnd = () => {
+      isDraggingRef.current = false;
+      setIsDragging(false);
+    };
+    const handleWindowDrop = () => {
+      isDraggingRef.current = false;
+      setIsDragging(false);
+    };
+    window.addEventListener("dragend", handleDragEnd);
+    window.addEventListener("drop", handleWindowDrop);
+    return () => {
+      window.removeEventListener("dragend", handleDragEnd);
+      window.removeEventListener("drop", handleWindowDrop);
+    };
+  }, []);
 
   const onPointDragOver = (ev: React.DragEvent) => ev.preventDefault();
   const onPointDrop = (ev: React.DragEvent, file: string) => {
     ev.preventDefault();
     const cat = ev.dataTransfer.getData("text/plain");
     if (cat && typeof cat === "string") setGuesses((prev) => ({ ...prev, [file]: cat }));
+    // clear native dragging state
+    isDraggingRef.current = false;
+    setIsDragging(false);
   };
 
   const onPointDoubleClick = (file: string) => {
