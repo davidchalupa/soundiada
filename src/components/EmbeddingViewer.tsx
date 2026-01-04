@@ -1,4 +1,3 @@
-// src/components/EmbeddingViewer.tsx
 import React, { useRef, useState, useMemo, useEffect } from "react";
 import { esc50Embeddings } from "../resources/embeddings";
 import "./EmbeddingViewer.css";
@@ -67,16 +66,7 @@ const EmbeddingViewer: React.FC<Props> = ({ padding = 40, aspectRatio = 9 / 16 }
   // embeddings frozen copy
   const embeddings = useMemo(() => esc50Embeddings.slice(), []);
 
-  const totalFlagged = useMemo(() => {
-    // count only files that are in the current embedding list and have a valid guess
-    const validSet = new Set(embeddings.map((e) => e.file));
-    let cnt = 0;
-    for (const f of embeddings.map((e) => e.file)) {
-      if (guesses[f] && typeof guesses[f] === "string") cnt++;
-    }
-    return cnt;
-  }, [guesses, embeddings]);
-
+  // count labeled correctly (used for final score)
   const correctCount = useMemo(
     () => embeddings.reduce((acc, e) => (guesses[e.file] === e.category ? acc + 1 : acc), 0),
     [guesses, embeddings]
